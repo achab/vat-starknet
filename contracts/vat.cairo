@@ -2,6 +2,7 @@
 %builtins pedersen range_check
 
 from starkware.cairo.common.cairo_builtins import HashBuiltin
+from starkware.cairo.common.math import assert_not_zero
 from starkware.cairo.common.uint256 import (
   Uint256,
   uint256_add,
@@ -9,24 +10,16 @@ from starkware.cairo.common.uint256 import (
   uint256_eq,
   uint256_le,
   uint256_check,
-  uint256_mul
+  uint256_mul,
+  uint256_signed_nn
 )
 from starkware.starknet.common.syscalls import (get_caller_address, get_contract_address)
 
-# contract Vat {
 
-#     mapping(address => mapping (address => uint)) public can;
 @storage_var
-func _can(u: felt) -> (res : felt):
+func _can(u: felt, v : felt) -> (res : felt):
 end
 
-#     struct Ilk {
-#         uint256 Art;   // Total Normalised Debt     [wad]
-#         uint256 rate;  // Accumulated Rates         [ray]
-#         uint256 spot;  // Price with Safety Margin  [ray]
-#         uint256 line;  // Debt Ceiling              [rad]
-#         uint256 dust;  // Urn Debt Floor            [rad]
-#     }
 struct Ilk:
     member Art: Uint256   # Total Normalised Debt     [wad]
     member rate: Uint256  # Accumulated Rates         [ray]
@@ -35,62 +28,89 @@ struct Ilk:
     member dust: Uint256  # Urn Debt Floor            [rad]
 end
 
-#     struct Urn {
-#         uint256 ink;   // Locked Collateral  [wad]
-#         uint256 art;   // Normalised Debt    [wad]
-#     }
 struct Urn:
     member ink: Uint256 # Locked Collateral  [wad]
     member art: Uint256 # Normalised Debt    [wad]
 end
 
-#     mapping (bytes32 => Ilk)                       public ilks;
 @storage_var
 func _ilks(i: felt) -> (ilk : Ilk):
 end
 
-#     mapping (bytes32 => mapping (address => Urn )) public urns;
 @storage_var
 func _urns(i: felt, u: felt) -> (urn : Urn):
 end
 
-#     mapping (bytes32 => mapping (address => uint)) public gem;  // [wad]
 @storage_var
 func _gem(i: felt, u: felt) -> (gem : Uint256):
 end
 
-#     mapping (address => uint256)                   public dai;  // [rad]
 @storage_var
 func _dai(u: felt) -> (dai : Uint256):
 end
 
-#     mapping (address => uint256)                   public sin;  // [rad]
 @storage_var
 func _sin(u: felt) -> (sin : Uint256):
 end
 
-#     uint256 public debt;  // Total Dai Issued    [rad]
 @storage_var
 func _debt() -> (debt : Uint256):
 end
 
-#     uint256 public vice;  // Total Unbacked Dai  [rad]
 @storage_var
 func _vice() -> (vice: Uint256):
 end
 
-#     uint256 public Line;  // Total Debt Ceiling  [rad]
 @storage_var
 func _Line() -> (Line: Uint256):
 end
 
-#     uint256 public live;  // Active Flag
 @storage_var
-func _live() -> (live: Uint256):
+func _live() -> (live: felt):
 end
 
 @storage_var
 func _wards(user : felt) -> (res : felt):
+end
+
+# util functions
+func either{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+  }(x : felt, y : felt):
+    assert (x - 1) * (y - 1)) = 0
+    return ()
+end
+
+func both{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+  }(x : felt, y : felt):
+    assert (x + y) = 2
+    return ()
+end
+
+func eq{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+}(a : felt, b : felt) -> (res : felt):
+    if a == b:
+        return (res=1)
+    else:
+        return (res=0)
+    end
+end
+
+func wish{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+}(u : felt, v : felt) -> (res : felt):
+    let (can) = _can.read(u, v)
+    return (res=either(eq(u, v), can))
 end
 
 # auth function
@@ -132,85 +152,44 @@ func constructor{
     return ()
 end
 
+func add{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+  }(x : Uint256, y : Uint256) -> (z : Uint256):
+  let (z : Uint256, is_overflow) = uint256_add(x, y)
+  assert (is_overflow) = 0
+  return (z=z)
+end
 
-#     // --- Math ---
-#     function add(uint x, int y) internal pure returns (uint z) {
-#         z = x + uint(y);
-#         require(y >= 0 || z <= x);
-#         require(y <= 0 || z >= x);
-#     }
-#     function sub(uint x, int y) internal pure returns (uint z) {
-#         z = x - uint(y);
-#         require(y <= 0 || z <= x);
-#         require(y >= 0 || z >= x);
-#     }
-#     function mul(uint x, int y) internal pure returns (int z) {
-#         z = int(x) * y;
-#         require(int(x) >= 0);
-#         require(y == 0 || z / y == int(x));
-#     }
-#     function add(uint x, uint y) internal pure returns (uint z) {
-#         require((z = x + y) >= x);
-#     }
-#     function sub(uint x, uint y) internal pure returns (uint z) {
-#         require((z = x - y) <= x);
-#     }
-#     function mul(uint x, uint y) internal pure returns (uint z) {
-#         require(y == 0 || (z = x * y) / y == x);
-#     }
+func sub{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+  }(x : Uint256, y : Uint256) -> (z : Uint256):
+  let (z : Uint256, is_overflow) = uint256_sub(x, y)
+  assert (is_overflow) = 0
+  return (z=z)
+end
 
-#     // --- Administration ---
-#     function init(bytes32 ilk) external auth {
-#         require(ilks[ilk].rate == 0, "Vat/ilk-already-init");
-#         ilks[ilk].rate = 10 ** 27;
-#     }
+func mul{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+  }(x : Uint256, y : Uint256) -> (z : Uint256):
+  let (z : Uint256, is_overflow) = uint256_mul(x, y)
+  assert (is_overflow) = 0
+  return (z=z)
+end
 
-#     function either(bool x, bool y) internal pure returns (bool z) {
-#         assembly{ z := or(x, y)}
-#     }
-#     function both(bool x, bool y) internal pure returns (bool z) {
-#         assembly{ z := and(x, y)}
-#     }
+func equals_zero{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+    }(x : felt) -> (res : felt):
+    return (res=both(uint256_signed_nn(x), uint256_signed_nn(uint256_neg(x))))
+end
 
-#     // --- CDP Manipulation ---
-#     function frob(bytes32 i, address u, address v, address w, int dink, int dart) external {
-#         // system is live
-#         require(live == 1, "Vat/not-live");
-
-#         Urn memory urn = urns[i][u];
-#         Ilk memory ilk = ilks[i];
-#         // ilk has been initialised
-#         require(ilk.rate != 0, "Vat/ilk-not-init");
-
-#         urn.ink = add(urn.ink, dink);
-#         urn.art = add(urn.art, dart);
-#         ilk.Art = add(ilk.Art, dart);
-
-#         int dtab = mul(ilk.rate, dart);
-#         uint tab = mul(ilk.rate, urn.art);
-#         debt     = add(debt, dtab);
-
-#         // either debt has decreased, or debt ceilings are not exceeded
-#         require(either(dart <= 0, both(mul(ilk.Art, ilk.rate) <= ilk.line, debt <= Line)), "Vat/ceiling-exceeded");
-#         // urn is either less risky than before, or it is safe
-#         require(either(both(dart <= 0, dink >= 0), tab <= mul(urn.ink, ilk.spot)), "Vat/not-safe");
-
-#         // urn is either more safe, or the owner consents
-#         require(either(both(dart <= 0, dink >= 0), wish(u, msg.sender)), "Vat/not-allowed-u");
-#         // collateral src consents
-#         require(either(dink <= 0, wish(v, msg.sender)), "Vat/not-allowed-v");
-#         // debt dst consents
-#         require(either(dart >= 0, wish(w, msg.sender)), "Vat/not-allowed-w");
-
-#         // urn has no debt, or a non-dusty amount
-#         require(either(urn.art == 0, tab >= ilk.dust), "Vat/dust");
-
-#         gem[i][v] = sub(gem[i][v], dink);
-#         dai[w]    = add(dai[w],    dtab);
-
-#         urns[i][u] = urn;
-#         ilks[i]    = ilk;
-#     }
 
 @external
 func frob{}(i: felt, u: felt, v: felt, w: felt, dink: Uint256, dart: Uint256) -> ():
@@ -218,24 +197,51 @@ func frob{}(i: felt, u: felt, v: felt, w: felt, dink: Uint256, dart: Uint256) ->
 
     # system is live
     let (live) = _live.read()
-    assert live == 1
+    assert live = 1
 
     let (local urn) = _urns.read(i, u)
     let (local ilk) = _ilks.read(i)
     # ilk has been initialised
-    assert ilk.rate != 0
+    assert_not_zero(ilk.rate)
 
-    urn.ink = uint256_add(urn.ink, dink)
-    urn.art = uint256_add(urn.art, dart)
-    ilk.Art = uint256_add(ilk.Art, dart)
+    urn.ink = add(urn.ink, dink)
+    urn.art = add(urn.art, dart)
+    ilk.Art = add(ilk.Art, dart)
 
-    let (dtab) = uint256_mul(ilk.rate, dart)
-    let (tab) = uint256_mul(ilk.rate, urn.art)
+    let (dtab) = mul(ilk.rate, dart)
+    let (tab) = mul(ilk.rate, urn.art)
     let (debt) = _debt.read()
-    debt = uint256_add(debt, dtab)
+    debt = add(debt, dtab)
     _debt.write(debt)
+
+    let (Line) = _Line.read()
+    let (caller) = get_caller_address()
+
+    # either debt has decreased, or debt ceilings are not exceeded
+    either(uint256_signed_nn(uint256_neg(dart)), both(uint256_le(mul(ilk.Art, ilk.rate), ilk.line), uint256_le(debt, Line)))
+
+    # urn is either less risky than before, or it is safe
+    either(both(uint256_signed_nn(uint256_neg(dart)), uint256_signed_nn(dink)), uint256_le(tab, mul(urn.ink, ilk.spot)))
+
+    # urn is either more safe, or the owner consents
+    either(both(uint256_signed_nn(uint256_neg(dart)), uint256_signed_nn(dink)), wish(u, caller))
+
+    # collateral src consents
+    either(uint256_signed_nn(uint256_neg(dink)), wish(v, caller))
+
+    # debt dst consents
+    either(uint256_signed_nn(dart), wish(w, caller))
+
+    # urn has no debt, or a non-dusty amount
+    either(equals_zero(urn.art), uint256_le(ilk.dust, tab))
+    
+    let (local gem) = _gem.read(i, v)
+    _gem.write(i, v, sub(gem, dink))
+    let (local dai) = _dai.read(w)
+    _dai.write(w, add(dai, dtab))
+
+    _urns.write(i, u, urn)
+    _ilks.write(i, ilk)
 
     return ()
 end
-
-# }
