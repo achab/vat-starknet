@@ -8,8 +8,11 @@ from starkware.cairo.common.uint256 import (
   uint256_sub,
   uint256_eq,
   uint256_le,
-  uint256_check
+  uint256_check,
+  uint256_mul
 )
+from starkware.starknet.common.syscalls import (get_caller_address, get_contract_address)
+
 # contract Vat {
 
 #     mapping(address => mapping (address => uint)) public can;
@@ -48,7 +51,7 @@ end
 
 #     mapping (bytes32 => mapping (address => Urn )) public urns;
 @storage_var
-func _urns(i: felt) -> (urn : Ilk):
+func _urns(i: felt, u: felt) -> (urn : Urn):
 end
 
 #     mapping (bytes32 => mapping (address => uint)) public gem;  // [wad]
@@ -84,6 +87,49 @@ end
 #     uint256 public live;  // Active Flag
 @storage_var
 func _live() -> (live: Uint256):
+end
+
+@storage_var
+func _wards(user : felt) -> (res : felt):
+end
+
+# auth function
+func auth{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+  }():
+    let (caller) = get_caller_address()
+    let (ward) = _wards.read(caller)
+    assert ward = 1
+    return ()
+end
+
+# init vault function
+@external
+func init{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+  }(user : felt):
+    auth()
+    _wards.write(user, 1)
+    return ()
+end
+
+@constructor
+func constructor{
+    syscall_ptr : felt*,
+    pedersen_ptr : HashBuiltin*,
+    range_check_ptr
+  }(
+    caller : felt
+  ):
+    # get_caller_address() returns '0' in the constructor
+    # therefore, caller parameter is included
+    _wards.write(caller, 1)
+    _live.write(1)
+    return ()
 end
 
 
@@ -168,6 +214,27 @@ end
 
 @external
 func frob{}(i: felt, u: felt, v: felt, w: felt, dink: Uint256, dart: Uint256) -> ():
+    alloc_locals
+
+    # system is live
+    let (live) = _live.read()
+    assert live == 1
+
+    let (local urn) = _urns.read(i, u)
+    let (local ilk) = _ilks.read(i)
+    # ilk has been initialised
+    assert ilk.rate != 0
+
+    urn.ink = uint256_add(urn.ink, dink)
+    urn.art = uint256_add(urn.art, dart)
+    ilk.Art = uint256_add(ilk.Art, dart)
+
+    let (dtab) = uint256_mul(ilk.rate, dart)
+    let (tab) = uint256_mul(ilk.rate, urn.art)
+    let (debt) = _debt.read()
+    debt = uint256_add(debt, dtab)
+    _debt.write(debt)
+
     return ()
 end
 
