@@ -103,7 +103,7 @@ end
 func auth{syscall_ptr : felt*, pedersen_ptr : HashBuiltin*, range_check_ptr}():
     let (caller) = get_caller_address()
     let (ward) = _wards.read(caller)
-    assert ward = 1
+    assert (ward) = 1
     return ()
 end
 
@@ -115,8 +115,7 @@ func init{syscall_ptr : felt*, pedersen_ptr : HashBuiltin*, range_check_ptr}(i :
     let (local ilk : Ilk) = _ilks.read(i)
     let (is_zero) = uint256_is_zero(ilk.rate)
     assert (is_zero) = 1
-    assert ilk.rate = Uint256(10 ** 27, 0)
-    _ilks.write(i, ilk)
+    _ilks.write(i, Ilk(ilk.Art, Uint256(10 ** 27, 0), ilk.spot, ilk.line, ilk.dust))
     return ()
 end
 
